@@ -26,9 +26,11 @@ fwd_primer <- "CCTACGGGAGGCAGCAG"
 rev_primer <- "TACNVGGGTATCTAAKCC"
 # fwd_primer <- ""
 # rev_primer <- ""
-seqtk <- '/home/user/miniconda3/envs/seqtk/bin/seqtk' # change as needed!
+seqtk <- '/Users/barbaraverhaar/miniconda3/bin/seqtk' # change as needed!
 
 dir.create('trimmed')
+# removing 16S rRNA primers
+
 for (i in runs) {
     run_name <-  str_remove(str_remove(i, "[[:punct:]]"), 'raw')
     dir.create(file.path('trimmed', run_name))
@@ -95,13 +97,13 @@ for (i in runs) {
 ###### parameters trimming and filtering ###
 
 trunq <- 4
-maxEEfwd <- 2
+maxEEfwd <- 4
 maxEErev <- 4
 trimming_fwd <- 270
 trimming_rev <- 230
 maxN <- 0
 
-nthreads <- 8 
+nthreads <- 6 
 
 ######### accepted ASV length range #####
 
@@ -109,6 +111,7 @@ min_length <- 380
 max_length <- 480
 
 ### pooling ###
+
 pooling <- F # T is a bit more sensitive for low abundance ASVs, but a lot slower and a bit more false positives
 # pooling <- T
 # pooling <- 'pseudo' # pseudo-pooling gives intermediary speed and sensitivity
@@ -116,7 +119,7 @@ pooling <- F # T is a bit more sensitive for low abundance ASVs, but a lot slowe
 #########################################
 
 # assign taxonomy with the dada2 assignTaxonomy function OR with the IdTaxa algorithm from the DECIPHER package
-# taxonomy_assignement <- "IdTaxa"
+# taxonomy_assignment <- "IdTaxa"
 taxonomy_assignment <- "dada2"
 
 #########################################
@@ -127,11 +130,12 @@ dir.create('results')
 # for each run: filter, learn error rates, infer ASVs, and get ASV table
 getN <- function(x) sum(getUniques(x))
 
+# for each run, trim and filter reads, learn error rates, infer ASVs, and make ASV table
 for (i in runs) {
     run_name <-  str_remove(str_remove(i, "[[:punct:]]"), 'raw')
-    fastqFs <- sort(list.files('raw', pattern = forward_pattern, recursive = T))
+    fastqFs <- sort(list.files('trimmed', pattern = forward_pattern, recursive = T))
+    fastqRs <- sort(list.files('trimmed', pattern = reverse_pattern, recursive = T))
     fastqFs <- fastqFs[grep(run_name, fastqFs)]
-    fastqRs <- sort(list.files('raw', pattern = reverse_pattern, recursive = T))
     fastqRs <- fastqRs[grep(run_name, fastqRs)]
     if (length(fastqFs) != length(fastqRs)) stop("Forward and reverse files do not match.")
     
@@ -139,7 +143,7 @@ for (i in runs) {
     out <- filterAndTrim(fwd = file.path('trimmed', fastqFs), filt = file.path('filtered', fastqFs),
                          rev = file.path('trimmed', fastqRs), filt.rev = file.path('filtered', fastqRs),
                          truncLen = c(trimming_fwd, trimming_rev), 
-                         maxEE = c(maxEEfwd, maxEErev), 
+                         # maxEE = c(maxEEfwd, maxEErev), 
                          truncQ = trunq, 
                          maxN = maxN, 
                          rm.phix = T,
@@ -149,7 +153,7 @@ for (i in runs) {
     
     filts <- file.path('filtered', run_name, list.files(file.path('filtered', run_name)))
     filtFs <- filts[grep(forward_pattern, filts)]
-    cat(filtFs)
+ 
     # Learn error rates
     cat('\nLearning error rates for', run_name,'...\n\n')
     
@@ -190,8 +194,7 @@ for (i in runs) {
     rownames(track) <- sample.names
     track <- as.data.frame(track)
     track$sample <- rownames(track)
-    head(track)
-    
+
     # save read tracking
     write.csv(track, file.path('results', paste0(run_name,'_track.csv')), row.names = F)
 }
@@ -201,6 +204,7 @@ ff <- list.files('results')
 tracks <- file.path('results', ff[grep('track', ff)])
 tt <- matrix(nrow = 0, ncol = 6)
 colnames(tt) <- c('input', 'filtered', 'denoisedF', 'denoisedR', 'merged', 'sample')
+
 # import and append read tracking from all runs
 for (i in 1:length(runs)) {
     tr <- read.csv(tracks[i])
@@ -232,9 +236,9 @@ track_non_chimera <- rowSums(seqtab.nochim)
 tracks$non_chimera <- track_non_chimera[match(tracks$sample, names(track_non_chimera))]
 cat('Proportion of counts remaining after chimera filter:\n')
 cat(sum(seqtab.nochim)/sum(st.all), "\n\n")
+s <- seqtab.nochim
 
 # assign taxonomy (SILVA v138)
-s <- seqtab.nochim
 
 if (taxonomy_assignment == 'dada2') {
     # check if tax db exists, else download
@@ -308,16 +312,8 @@ if (taxonomy_assignment == 'dada2') {
 # make multiple sequence alignment with MAFFT binary available in the 'bin' folder
 # READ: https://mafft.cbrc.jp/alignment/software/
 
-mafft_link <- 'https://mafft.cbrc.jp/alignment/software/mafft-7.475-linux.tgz'
-mafft_file <- 'mafft-7.475-linux.tgz'
-mafft <- 'mafft-linux64/mafft.bat'
+mafft <- '/usr/local/bin/mafft'
 
-if (!file.exists(mafft)) {
-    get_mafft <- paste0('wget -c ', mafft_link, ' -O ', mafft_file)
-    system(get_mafft)
-    unpack <- paste0("tar xfvz ", mafft_file)
-    system(unpack)
-}
 make_multiple_alignment <- paste0(mafft, " --auto --thread ", nthreads, " results/ASVs.fasta > results/ASVs.msa")
 make_multiple_alignment
 system(make_multiple_alignment)
@@ -326,10 +322,8 @@ system(make_multiple_alignment)
 # READ: http://www.microbesonline.org/fasttree/#BranchLen (read for MAC OS)
 
 # check if FastreeDbl is available
-fastree <- 'bin/FastTreeDbl'
-if (!file.exists(fastree)) {
-    cat('FastTreeDbl is not available!\n')
-}
+fastree <- '/Users/barbaraverhaar/miniconda3/bin/fasttree'
+
 make_tree <- paste0(fastree, " -nt -gtr < results/ASVs.msa > results/ASVs.tree")
 system(make_tree)
 
