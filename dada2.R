@@ -201,7 +201,7 @@ for (i in runs) {
 
 # integrate read tracking so far from multiple runs
 ff <- list.files('results')
-tracks <- file.path('results', ff[grep('track', ff)])
+tracks <- file.path('results', ff[grep('track.csv', ff)])
 tt <- matrix(nrow = 0, ncol = 6)
 colnames(tt) <- c('input', 'filtered', 'denoisedF', 'denoisedR', 'merged', 'sample')
 
@@ -215,6 +215,7 @@ tracks
 
 # merge ASV tables from multiple runs
 tables <- file.path('results', ff[grep('.RDS', ff)])
+tables <- tables[grep("run..RDS", tables)]
 st.all <- mergeSequenceTables(tables = tables)
 rownames(st.all) <- str_remove(rownames(st.all), forward_pattern)
 
