@@ -4,68 +4,24 @@ packageVersion('dada2')
 
 # raw reads (fastq.gz files) for should be in separate folders, by sequencing run: 'run1' ,'run2', etc 
 
+### all fastq files were renamed to _R1.fastq / _R2.fastq and placed in the 'trimmed' folder 
+# in the 'run1' subfolder
+
 ##############################
-forward_pattern <- 'read1'
-reverse_pattern <- 'read2'
+forward_pattern <- '_R1.fastq'
+reverse_pattern <- '_R2.fastq'
 ##############################
 
 # get runs
-runs <- list.dirs('raw')[grep('run', list.dirs('raw'))]
+runs <- list.dirs('trimmed')[grep('run', list.dirs('trimmed'))]
 runs
 length(runs)
-
-# remove primers with seqtk
-
-# >>> install seqtk with conda/mamba: "conda install -c bioconda seqtk"
-
-# check if fwd_primer is present at the start of fwd reads!
-# check if rev_primers (or reverse complement of rev_primers) is present at the start of reverse reads!
-# use grep and wildcard
-
-#fwd_primer <- "CCTACGGGAGGCAGCAG"
-#rev_primer <- "TACNVGGGTATCTAAKCC"
-fwd_primer <- ""
-rev_primer <- ""
-seqtk <- '/Users/barbaraverhaar/miniconda3/bin/seqtk' # change as needed!
-
-#dir.create('trimmed')
-# removing 16S rRNA primers
-
-for (i in runs) {
-    run_name <-  str_remove(str_remove(i, "[[:punct:]]"), 'raw')
-    dir.create(file.path('trimmed', run_name))
-    cat('\n\n***** Trimming 16S rRNA primers from', run_name,'...\n')
-    l <- list.files(i)
-    ll <- file.path(i, l)
-    fwd_reads <- ll[grep(forward_pattern, ll)]
-    rev_reads <- ll[grep(reverse_pattern, ll)]
-    cat("\n***", run_name,'has', length(fwd_reads), 'samples.\n')
-    samples_fwd <- stringr::str_remove(fwd_reads, forward_pattern)
-    samples_fwd <- stringr::str_remove(samples_fwd, paste0(i,'/'))
-    samples_rev <- stringr::str_remove(rev_reads, reverse_pattern)
-    samples_rev <- stringr::str_remove(samples_rev, paste0(i,'/'))
-    df <- data.frame(fwd_reads, rev_reads, samples_fwd, samples_rev)
-    for (j in 1:nrow(df)) {
-        if (df$samples_fwd[j] == df$samples_rev[j]) {
-            cat('\nTrimming 16S rRNA primers from sample', df$samples_fwd[j],'...\n')
-            fwd_trimmed <- str_replace(df$fwd_reads[j], 'raw', 'trimmed')
-            rev_trimmed <- str_replace(df$rev_reads[j], 'raw', 'trimmed')
-            trim_fwd <- paste(seqtk, "trimfq -b", nchar(fwd_primer), df$fwd_reads[j], '| gzip >', fwd_trimmed, sep = ' ')
-            trim_rev <- paste(seqtk, "trimfq -b", nchar(rev_primer), df$rev_reads[j], '| gzip >', rev_trimmed, sep = ' ')
-            system(trim_fwd)
-            system(trim_rev)
-        } else {
-            cat("Forwards and reverse fastq files for sample", df$samples_fwd[j], "do not match!\n\n")
-        }
-    }
-}
-
 
 # QC 
 qc_path <- 'qc_trimmed'
 dir.create(qc_path)
 for (i in runs) {
-    run_name <-  str_remove(str_remove(i, "[[:punct:]]"), 'raw')
+    run_name <-  str_remove(str_remove(i, "[[:punct:]]"), 'trimmed')
     i <- str_replace(i, 'raw', 'trimmed')
     l <- list.files(i)
     ll <- file.path(i, l)
@@ -85,10 +41,10 @@ for (i in runs) {
     
     # make an aggregate plot for all fwd / reverse files from the run
     cat('\nPlotting forward reads..\n')
-    pl1 <- plotQualityProfile(fwd_reads, aggregate = T)
+    pl1 <- plotQualityProfile(fwd_reads, aggregate = T, n = 5e+05)
     ggsave(pl1, path = qc_path, filename = paste0('QC_plot_', run_name, '_forward_reads.pdf'), width = 6, height = 5, device = 'pdf')
     cat('\nPlotting reverse reads..\n')
-    pl2 <- plotQualityProfile(rev_reads, aggregate = T)
+    pl2 <- plotQualityProfile(rev_reads, aggregate = T, n = 5e+05)
     ggsave(pl2, path = qc_path, filename = paste0('QC_plot_', run_name, '_reverse_reads.pdf'), width = 6, height = 5, device = 'pdf')
 }
 
@@ -97,21 +53,20 @@ for (i in runs) {
 ###### parameters trimming and filtering ###
 
 trunq <- 4
-maxEEfwd <- 4
+maxEEfwd <- 2
 maxEErev <- 4
-trimming_fwd <- 260
-trimming_rev <- 260
+trimming_fwd <- 250
+trimming_rev <- 240
 maxN <- 0
 
-nthreads <- 6 
+nthreads <- 10 
 
 ######### accepted ASV length range #####
 
-min_length <- 380
-max_length <- 480
+min_length <- 350
+max_length <- 500
 
 ### pooling ###
-
 pooling <- F # T is a bit more sensitive for low abundance ASVs, but a lot slower and a bit more false positives
 # pooling <- T
 # pooling <- 'pseudo' # pseudo-pooling gives intermediary speed and sensitivity
@@ -119,8 +74,8 @@ pooling <- F # T is a bit more sensitive for low abundance ASVs, but a lot slowe
 #########################################
 
 # assign taxonomy with the dada2 assignTaxonomy function OR with the IdTaxa algorithm from the DECIPHER package
- taxonomy_assignment <- "IdTaxa"
-# taxonomy_assignment <- "dada2"
+# taxonomy_assignement <- "IdTaxa"
+taxonomy_assignment <- "dada2"
 
 #########################################
 
@@ -130,12 +85,11 @@ dir.create('results')
 # for each run: filter, learn error rates, infer ASVs, and get ASV table
 getN <- function(x) sum(getUniques(x))
 
-# for each run, trim and filter reads, learn error rates, infer ASVs, and make ASV table
 for (i in runs) {
-    run_name <-  str_remove(str_remove(i, "[[:punct:]]"), 'raw')
+    run_name <-  str_remove(str_remove(i, "[[:punct:]]"), 'trimmed')
     fastqFs <- sort(list.files('trimmed', pattern = forward_pattern, recursive = T))
-    fastqRs <- sort(list.files('trimmed', pattern = reverse_pattern, recursive = T))
     fastqFs <- fastqFs[grep(run_name, fastqFs)]
+    fastqRs <- sort(list.files('trimmed', pattern = reverse_pattern, recursive = T))
     fastqRs <- fastqRs[grep(run_name, fastqRs)]
     if (length(fastqFs) != length(fastqRs)) stop("Forward and reverse files do not match.")
     
@@ -143,7 +97,7 @@ for (i in runs) {
     out <- filterAndTrim(fwd = file.path('trimmed', fastqFs), filt = file.path('filtered', fastqFs),
                          rev = file.path('trimmed', fastqRs), filt.rev = file.path('filtered', fastqRs),
                          truncLen = c(trimming_fwd, trimming_rev), 
-                         # maxEE = c(maxEEfwd, maxEErev), 
+                         maxEE = c(maxEEfwd, maxEErev), 
                          truncQ = trunq, 
                          maxN = maxN, 
                          rm.phix = T,
@@ -153,7 +107,7 @@ for (i in runs) {
     
     filts <- file.path('filtered', run_name, list.files(file.path('filtered', run_name)))
     filtFs <- filts[grep(forward_pattern, filts)]
- 
+    cat(filtFs)
     # Learn error rates
     cat('\nLearning error rates for', run_name,'...\n\n')
     
@@ -194,17 +148,17 @@ for (i in runs) {
     rownames(track) <- sample.names
     track <- as.data.frame(track)
     track$sample <- rownames(track)
-
+    head(track)
+    
     # save read tracking
     write.csv(track, file.path('results', paste0(run_name,'_track.csv')), row.names = F)
 }
 
 # integrate read tracking so far from multiple runs
 ff <- list.files('results')
-tracks <- file.path('results', ff[grep('track.csv', ff)])
+tracks <- file.path('results', ff[grep('track', ff)])
 tt <- matrix(nrow = 0, ncol = 6)
 colnames(tt) <- c('input', 'filtered', 'denoisedF', 'denoisedR', 'merged', 'sample')
-
 # import and append read tracking from all runs
 for (i in 1:length(runs)) {
     tr <- read.csv(tracks[i])
@@ -215,24 +169,26 @@ tracks
 
 # merge ASV tables from multiple runs
 tables <- file.path('results', ff[grep('.RDS', ff)])
-if(length(runs)>1){
-    tables <- tables[grep("run..RDS", tables)]
+# if multiple runs, read tables and merge
+if (length(runs) > 1) {
     st.all <- mergeSequenceTables(tables = tables)
-    rownames(st.all) <- str_remove(rownames(st.all), forward_pattern)
-}else{
+    } else {
+        # if only 1 run, read direcly
     st.all <- readRDS(tables)
 }
 
+rownames(st.all) <- str_remove(rownames(st.all), forward_pattern)
 
 # remove ASVs outside accepted ASV sequence length range
 seqtab <- st.all[, nchar(colnames(st.all)) %in% min_length:max_length]
 no_removed <- ncol(st.all) - ncol(seqtab)
 no_removed 
 table(nchar(getSequences(seqtab)))
+hist(nchar(getSequences(seqtab)))
 track_in_len <- rowSums(st.all)
 tracks$in_len_range <- track_in_len[match(tracks$sample, names(track_in_len))]
 cat('\nProportion of counts remaining after ASV length range filter:\n')
-cat(sum(seqtab)/sum(st.all), "\n\n")
+cat(sum(seqtab)/sum(st.all), "\n\n") # 100%
 
 # remove chimeras
 seqtab.nochim <- removeBimeraDenovo(seqtab, method = "consensus", multithread = nthreads, verbose = T)
@@ -241,16 +197,16 @@ table(nchar(getSequences(seqtab.nochim)))
 track_non_chimera <- rowSums(seqtab.nochim)
 tracks$non_chimera <- track_non_chimera[match(tracks$sample, names(track_non_chimera))]
 cat('Proportion of counts remaining after chimera filter:\n')
-cat(sum(seqtab.nochim)/sum(st.all), "\n\n")
-s <- seqtab.nochim
+cat(sum(seqtab.nochim)/sum(st.all), "\n\n") # 95.8 %
 
 # assign taxonomy (SILVA v138)
+s <- seqtab.nochim
 
 if (taxonomy_assignment == 'dada2') {
     # check if tax db exists, else download
     dada2_tax_db <- 'tax_db/silva_nr99_v138_train_set.fa.gz'
     dada2_tax_db_link <- 'https://zenodo.org/record/3986799/files/silva_nr99_v138_train_set.fa.gz\\?download\\=1'
-    #dir.create('tax_db')
+    dir.create('tax_db')
     if (!file.exists(dada2_tax_db)) {
         cat('Downloading SILVA v138 taxonomy db\n\n')
         get_tax <- paste0("wget -c ", dada2_tax_db_link, " -O ", dada2_tax_db)
@@ -272,7 +228,7 @@ if (taxonomy_assignment == 'dada2') {
     
     # Assign taxonomy using the DADA2 function
     cat("Assigning taxonomy...\n\n")
-    s.tax <- assignTaxonomy(s, dada2_tax_db, multithread = nthreads, minBoot = 80, verbose = T)
+    s.tax <- assignTaxonomy(s, dada2_tax_db, multithread = nthreads, minBoot = 80)
     # Assign species taxonomy
     cat("Assigning species-level taxonomy...\n\n")
     taxa <- addSpecies(s.tax, dada2_tax_db_species, verbose = T, allowMultiple = 3, tryRC = T)
@@ -318,8 +274,16 @@ if (taxonomy_assignment == 'dada2') {
 # make multiple sequence alignment with MAFFT binary available in the 'bin' folder
 # READ: https://mafft.cbrc.jp/alignment/software/
 
-mafft <- '/usr/local/bin/mafft'
+mafft_link <- 'https://mafft.cbrc.jp/alignment/software/mafft-7.475-linux.tgz'
+mafft_file <- 'mafft-7.475-linux.tgz'
+mafft <- 'mafft-linux64/mafft.bat'
 
+if (!file.exists(mafft)) {
+    get_mafft <- paste0('wget -c ', mafft_link, ' -O ', mafft_file)
+    system(get_mafft)
+    unpack <- paste0("tar xfvz ", mafft_file)
+    system(unpack)
+}
 make_multiple_alignment <- paste0(mafft, " --auto --thread ", nthreads, " results/ASVs.fasta > results/ASVs.msa")
 make_multiple_alignment
 system(make_multiple_alignment)
@@ -328,8 +292,10 @@ system(make_multiple_alignment)
 # READ: http://www.microbesonline.org/fasttree/#BranchLen (read for MAC OS)
 
 # check if FastreeDbl is available
-fastree <- '/Users/barbaraverhaar/miniconda3/bin/fasttree'
-
+fastree <- 'bin/FastTreeDbl'
+if (!file.exists(fastree)) {
+    cat('FastTreeDbl is not available!\n')
+}
 make_tree <- paste0(fastree, " -nt -gtr < results/ASVs.msa > results/ASVs.tree")
 system(make_tree)
 
@@ -358,7 +324,7 @@ ps@refseq <- dna
 
 ps
 sample_sums(ps)
-saveRDS(ps, 'results/phyloseq_object.RDS')
+saveRDS(ps, 'results/phyloseq_object_DADA2.RDS')
 
 tracks
-write.csv(tracks, 'results/read_tracking.csv', row.names = F)
+write.csv(tracks, 'results/read_tracking_DADA2.csv', row.names = F)
